@@ -67,3 +67,13 @@ factory-presets.js에 tone/model ID를 명시합니다. 캐비넷 포함 풀 리
 The GitHub Actions workflow builds and publishes dist on pushes to main. Vite uses relative asset URLs so the NAM worklet and WASM also load under the repository path. Set repository variable VITE_TONE3000_CLIENT_ID to the TONE3000 publishable client ID (never a Secret Key). Enable Pages with GitHub Actions as the source.
 
 TONE3000 OAuth uses the deployed page URL as its redirect URI. If the TONE3000 API key has redirect restrictions, add that HTTPS URL in TONE3000 Settings. Each device signs in separately and downloads models into its own browser cache. Localhost models and saved rigs do not automatically transfer to iPad.
+
+## Audio routing diagnostics
+
+Settings → Monitor → Dry input · test bypasses all SG effects without changing the preset. The input meter measures the selected capture channel before SG input trim. Capture diagnostics show only properties reported by the browser; missing latency is never presented as zero. No reported number is a measured round-trip latency. Raw input requests disable echo cancellation, noise suppression, and automatic gain, and request a low capture latency when supported. Browsers may ignore unsupported requests.
+
+Bypassed blocks no longer instantiate NAM or effect processors. Power changes rebuild the graph, and old delay feedback nodes are disconnected during disposal. Rebuilding can briefly mute the signal. The stock Web Audio compressor still has its fixed lookahead latency when enabled; this update does not replace its sound algorithm.
+
+TONEX Plug is not assumed to send a raw DI: its manual describes its two USB inputs as processed preset L/R. Prepare the hardware for external amp processing and disable its direct monitor if available in the installed firmware/editor; SG cannot configure these hardware options. Its published USB interface rate is 44.1 kHz, while many NAM captures require 48 kHz. This mismatch alone does not prove the cause of excessive latency.
+
+Validation: tests/input-routing.html passes raw constraints, honest diagnostics, dry-monitor bypass and disabled NAM/comp passthrough. Existing serial/parallel routing and compressor/delay signal checks also pass. No measured iPad/TONEX Plug round-trip result is available.

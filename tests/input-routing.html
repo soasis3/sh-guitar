@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><pre id="result">RUNNING</pre><script type="module">
+import {buildRigGraph,newBlock} from '/rig-core.js';
+import {buildMonitorGraph,inputConstraints,captureReport} from '/audio-routing.js';
+try{
+ const constraints=inputConstraints({device:'usb'},48000,{sampleRate:true,latency:true});
+ if(constraints.echoCancellation!==false||constraints.noiseSuppression!==false||constraints.autoGainControl!==false||constraints.latency.ideal!==0||constraints.deviceId.exact!=='usb')throw Error('Input constraints');
+ const report=captureReport({label:'TONEX Plug',getSettings:()=>({sampleRate:44100,channelCount:2,echoCancellation:false})},{sampleRate:48000,baseLatency:0});
+ if(!report.includes('44,100 Hz')||!report.includes('not reported')||report.includes('0.0 ms'))throw Error('Misleading diagnostic');
+ for(const mode of ['dry','effects']){
+  const ctx=new OfflineAudioContext(1,1024,48000),src=ctx.createBufferSource(),buffer=ctx.createBuffer(1,1024,48000);buffer.getChannelData(0)[0]=.25;src.buffer=buffer;
+  const bad=newBlock('amp');bad.enabled=mode==='dry';bad.asset={text:'invalid NAM: must not be loaded'};
+  const comp=newBlock('comp');comp.enabled=false;
+  const graph=await buildMonitorGraph(ctx,{mode:'serial',blocks:[bad,comp]},src,ctx.destination,mode,buildRigGraph);src.start();const audio=(await ctx.startRendering()).getChannelData(0);
+  if(audio[0]!==.25||audio.slice(1).some(x=>x!==0))throw Error(mode+' changed or delayed bypass signal');await graph.dispose();
+ }
+ result.textContent='PASS: raw capture constraints\nPASS: unknown latency is not reported as zero\nPASS: dry monitor skips NAM/DSP\nPASS: disabled NAM and compressor use immediate passthrough';
+}catch(e){result.textContent='FAIL: '+e.message;}
+</script>

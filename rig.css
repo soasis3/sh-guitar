@@ -15,3 +15,5 @@ main{max-width:1320px}.chain-panel{padding:17px 22px 10px}.section-heading{margi
 .action-icon{display:inline-grid!important;place-items:center;width:38px;min-width:38px;height:38px;padding:8px!important;flex-shrink:0}.action-icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.editor-tools .action-icon{width:34px;min-width:34px;height:34px}.control-footer{justify-content:flex-end}.routing .action-icon[aria-pressed=true]{color:#e3c6ff;background:#8454a643}.model-actions .action-icon{border-color:#a880cc55}
 
 .effect-power i{display:grid;place-items:center}.effect-power i svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.effect-power:has(input:checked) i{color:#d1a6ff;border-color:#ad79e3;box-shadow:0 0 14px #a569cf25}.effect-power:not(:has(input:checked)) i{color:#766c81}
+
+.capture-info{white-space:pre-line;overflow-wrap:anywhere}.audio-meter-label{font-size:9px;color:#b39ac4;display:flex;justify-content:space-between;margin:12px 0 6px}

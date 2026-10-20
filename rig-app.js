@@ -1,3 +1,4 @@
+import {inputConstraints,captureReport,buildMonitorGraph} from './audio-routing.js';
 import {iconButton} from './ui-icons.js';
 import {FACTORY_PRESETS,createPresetLoader} from './factory-presets.js';
 import './rig.css';
@@ -11,6 +12,7 @@ const $=id=>document.getElementById(id),db=v=>10**(v/20);
 let rig,selected,ctx,stream,inputGain,outputGain,graph,split,frame,building=false,details=null;
 let saveQueue=Promise.resolve();
 let insertion=null;
+let monitorMode='effects';
 for(const [id,kind,label]of [['settingsOpen','settings','Settings'],['serialMode','serial','Serial routing'],['parallelMode','parallel','Parallel stereo routing']])iconButton($(id),kind,label);
 const message=()=>{};
 function showError(text){$('errorText').textContent=text;if(!$('errorDialog').open)$('errorDialog').showModal();}
@@ -64,7 +66,7 @@ function editor(){
   const b=current(),root=$('editor');root.replaceChildren();if(!b){root.append(el('p','Add an effect with +.','note'));return;}
   root.dataset.effect=b.type;
   const top=el('div',undefined,'control-header'),identity=el('div',undefined,'control-identity');identity.append(el('span',String(rig.blocks.indexOf(b)+1).padStart(2,'0'),'control-index'),el('h2',TYPES[b.type]),el('span',['amp','drive'].includes(b.type)?'NAM A2':['cab','reverb'].includes(b.type)?'IR LOADER':'SG EFFECT','control-format'));top.append(identity);
-  const toggle=el('label',undefined,'effect-power'),check=el('input');check.type='checkbox';check.checked=b.enabled;check.disabled=building||(!b.asset&&!['comp','delay'].includes(b.type));check.setAttribute('aria-label',TYPES[b.type]+' enabled');const powerIcon=el('i');powerIcon.setAttribute('aria-hidden','true');powerIcon.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 5.7a8 8 0 1 0 11.4 0"/></svg>';toggle.title=b.enabled?'Bypass effect':'Enable effect';toggle.append(check,powerIcon);check.onchange=()=>{b.enabled=check.checked;rig.factoryPreset=null;$('preset').value='custom';toggle.title=b.enabled?'Bypass effect':'Enable effect';graph?.controls.get(b.id)?.update({...b.params,enabled:b.enabled});persist();chain();};top.append(toggle);root.append(top);
+  const toggle=el('label',undefined,'effect-power'),check=el('input');check.type='checkbox';check.checked=b.enabled;check.disabled=building||(!b.asset&&!['comp','delay'].includes(b.type));check.setAttribute('aria-label',TYPES[b.type]+' enabled');const powerIcon=el('i');powerIcon.setAttribute('aria-hidden','true');powerIcon.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 5.7a8 8 0 1 0 11.4 0"/></svg>';toggle.title=b.enabled?'Bypass effect':'Enable effect';toggle.append(check,powerIcon);check.onchange=async()=>{b.enabled=check.checked;rig.factoryPreset=null;$('preset').value='custom';toggle.title=b.enabled?'Bypass effect':'Enable effect';graph?.controls.get(b.id)?.update({...b.params,enabled:b.enabled});await persist();chain();if(ctx)await rebuild();};top.append(toggle);root.append(top);
   if(!['comp','delay'].includes(b.type)){
     const model=el('div',undefined,'control-model'),copy=el('div',undefined,'model-copy');
     if(b.asset?.tone?.images?.[0]?.startsWith('https://')){const img=el('img');img.src=b.asset.tone.images[0];img.alt='';model.append(img);}
@@ -89,23 +91,28 @@ async function applyAsset(b,asset){
   else{const offline=new OfflineAudioContext(2,128,48000),decoded=await offline.decodeAudioData(asset.bytes.slice(0));if(decoded.duration>20||![1,2,4].includes(decoded.numberOfChannels))throw Error('IR must be mono, stereo, or 4-channel and no longer than 20 seconds.');}
   rig.factoryPreset=null;$('preset').value='custom';b.asset=asset;b.enabled=b.type!=='cab';details=null;await persist();chain();editor();if(ctx)await rebuild();message('');
 }
-async function rebuild(){if(!ctx||building)return;building=true;const context=ctx;outputGain.gain.setValueAtTime(0,context.currentTime);inputGain.disconnect();try{if(graph)await graph.dispose();graph=null;graph=await buildRigGraph(context,rig,inputGain,outputGain);outputGain.gain.setTargetAtTime(db(rig.audio.output),context.currentTime,.03);message('');}catch(e){showError(e.message);await stopAudio();}finally{building=false;chain();editor();}}
-async function stopAudio(){cancelAnimationFrame(frame);stream?.getTracks().forEach(t=>t.stop());stream=null;if(graph)await graph.dispose();graph=null;const old=ctx;ctx=null;inputGain=null;outputGain=null;if(old&&old.state!=='closed')await old.close();$('audioEnabled').checked=false;$('level').style.width='0%';for(const id of ['device','channel','sampleRate','latency'])$(id).disabled=false;$('audioInfo').textContent='128 samples · Device buffer managed by browser';}
+async function rebuild(){if(!ctx||building)return;building=true;const context=ctx;outputGain.gain.setValueAtTime(0,context.currentTime);inputGain.disconnect();try{if(graph)await graph.dispose();graph=null;graph=await buildMonitorGraph(context,rig,inputGain,outputGain,monitorMode,buildRigGraph);outputGain.gain.setTargetAtTime(db(rig.audio.output),context.currentTime,.03);message('');}catch(e){showError(e.message);await stopAudio();}finally{building=false;chain();editor();}}
+async function stopAudio(){cancelAnimationFrame(frame);stream?.getTracks().forEach(t=>t.stop());stream=null;if(graph)await graph.dispose();graph=null;const old=ctx;ctx=null;inputGain=null;outputGain=null;if(old&&old.state!=='closed')await old.close();$('audioEnabled').checked=false;$('level').style.width='0%';$('inputLevel').style.width='0%';$('inputPeak').textContent='−∞ dBFS';$('captureInfo').textContent='';for(const id of ['device','channel','sampleRate','latency'])$(id).disabled=false;$('audioInfo').textContent='128 samples · Device buffer managed by browser';}
 async function startAudio(){
   if(building)return;building=true;$('audioEnabled').disabled=true;
   try{if(!isSecureContext||!navigator.mediaDevices?.getUserMedia)throw Error('Audio input requires HTTPS or localhost.');ctx=new AudioContext({sampleRate:Number(rig.audio.rate),latencyHint:rig.audio.latency});await ctx.resume();
     inputGain=ctx.createGain();outputGain=ctx.createGain();inputGain.gain.value=db(rig.audio.input);outputGain.gain.value=0;
-    graph=await buildRigGraph(ctx,rig,inputGain,outputGain);
-    stream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:rig.audio.device?{exact:rig.audio.device}:undefined,channelCount:{ideal:2},echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+    graph=await buildMonitorGraph(ctx,rig,inputGain,outputGain,monitorMode,buildRigGraph);
+    stream=await navigator.mediaDevices.getUserMedia({audio:inputConstraints(rig.audio,ctx.sampleRate,navigator.mediaDevices.getSupportedConstraints()),video:false});
+    const track=stream.getAudioTracks()[0],actual=track.getSettings();
+    if(actual.channelCount&&Number(rig.audio.channel)>=actual.channelCount)throw Error('Selected input channel is unavailable. Choose Input 1.');
+    $('captureInfo').textContent=captureReport(track,ctx);
     const source=ctx.createMediaStreamSource(stream);split=ctx.createChannelSplitter(2);source.connect(split);split.connect(inputGain,Number(rig.audio.channel));
+    const inputMeter=ctx.createAnalyser();inputMeter.fftSize=256;split.connect(inputMeter,Number(rig.audio.channel));
     const analyser=ctx.createAnalyser();analyser.fftSize=256;outputGain.connect(analyser).connect(ctx.destination);outputGain.gain.setTargetAtTime(db(rig.audio.output),ctx.currentTime,.03);
     $('audioEnabled').checked=true;for(const id of ['device','channel','sampleRate','latency'])$(id).disabled=true;
-    $('audioInfo').textContent=`${ctx.sampleRate.toLocaleString()} Hz · 128 samples (${(128/ctx.sampleRate*1000).toFixed(2)} ms/block) · Reported browser latency ${((ctx.baseLatency||0)*1000).toFixed(1)} ms (not round-trip)`;
-    const data=new Float32Array(256);const meter=()=>{analyser.getFloatTimeDomainData(data);const peak=Math.max(...data.map(Math.abs));$('level').style.width=Math.min(100,peak*100)+'%';frame=requestAnimationFrame(meter);};meter();stream.getAudioTracks()[0].onended=()=>{stopAudio();message('');};await devices();message('');
+    $('audioInfo').textContent=`${ctx.sampleRate.toLocaleString()} Hz · 128-frame render blocks · ${monitorMode==='dry'?'Dry monitor':'Effects'}`;
+    const data=new Float32Array(256),inputData=new Float32Array(256);const meter=()=>{inputMeter.getFloatTimeDomainData(inputData);const inputPeak=Math.max(...inputData.map(Math.abs));$('inputLevel').style.width=Math.min(100,inputPeak*100)+'%';$('inputLevel').style.background=inputPeak>=.98?'#ee887d':'';$('inputPeak').textContent=inputPeak>0?`${(20*Math.log10(inputPeak)).toFixed(1)} dBFS${inputPeak>=.98?' · CLIP':''}`:'−∞ dBFS';analyser.getFloatTimeDomainData(data);const peak=Math.max(...data.map(Math.abs));$('level').style.width=Math.min(100,peak*100)+'%';frame=requestAnimationFrame(meter);};meter();stream.getAudioTracks()[0].onended=()=>{stopAudio();message('');};await devices();message('');
   }catch(e){await stopAudio();showError(e.message);}finally{building=false;$('audioEnabled').disabled=false;}
 }
 async function devices(){if(!navigator.mediaDevices)return;const list=await navigator.mediaDevices.enumerateDevices();$('device').replaceChildren(new Option('Default input',''),...list.filter(x=>x.kind==='audioinput').map((x,i)=>new Option(x.label||`Input ${i+1}`,x.deviceId)));$('device').value=rig.audio.device;}
 function audioUI(){for(const [id,key]of [['input','input'],['output','output'],['device','device'],['channel','channel'],['sampleRate','rate'],['latency','latency']])$(id).value=rig.audio[key];for(const id of ['input','output'])$(id+'Value').textContent=rig.audio[id]+' dB';}
+$('monitorMode').onchange=async()=>{if(building){$('monitorMode').value=monitorMode;return;}monitorMode=$('monitorMode').value;if(ctx)await rebuild();};
 $('settingsOpen').onclick=()=>{$('settings').showModal();};$('settingsClose').onclick=()=>$('settings').close();$('audioEnabled').onchange=()=>{if(building)return;if($('audioEnabled').checked)startAudio();else stopAudio();};
 for(const [id,key]of [['device','device'],['channel','channel'],['sampleRate','rate'],['latency','latency']])$(id).onchange=()=>{rig.audio[key]=$(id).value;persist();};
 for(const id of ['input','output'])$(id).oninput=()=>{rig.audio[id]=Number($(id).value);$(id+'Value').textContent=rig.audio[id]+' dB';(id==='input'?inputGain:outputGain)?.gain.setTargetAtTime(db(rig.audio[id]),ctx?.currentTime||0,.02);$('preset').value='custom';rig.factoryPreset=null;persist();};

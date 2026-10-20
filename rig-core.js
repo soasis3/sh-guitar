@@ -16,15 +16,16 @@ export function moveBlock(rig,id,lane,beforeId=null){
 export function orderedLanes(rig){return rig.mode==='parallel'?['pre','A','B','post']:['pre','A','post'];}
 export function validateRig(rig){if(!rig || !Array.isArray(rig.blocks) || rig.blocks.length>12)throw Error('Invalid signal chain.');const ids=new Set();for(const b of rig.blocks){if(!TYPES[b.type]||ids.has(b.id)||!['pre','A','B','post'].includes(b.lane))throw Error('Invalid effect block.');b.params={...defaults[b.type],...b.params};ids.add(b.id);}return rig;}
 export async function buildRigGraph(ctx,rig,source,destination){
-  validateRig(rig);const disposables=[],nodes=[],controls=new Map();let engine;
+  validateRig(rig);const disposables=[],pedals=[],nodes=[],controls=new Map();let engine;
   const gain=()=>{const n=ctx.createGain();nodes.push(n);return n;};
   const set=(p,v,initial)=>initial?p.setValueAtTime(v,ctx.currentTime):p.setTargetAtTime(v,ctx.currentTime,.02);
   const db=v=>10**(v/20);
   async function lane(name,input){let upstream=input;
     for(const b of rig.blocks.filter(b=>b.lane===name)){
       const out=gain();const state={...b.params,enabled:b.enabled};
-      if(b.type==='comp'){controls.set(b.id,compressorGraph(ctx,upstream,out,state));}
-      else if(b.type==='delay'){controls.set(b.id,delayGraph(ctx,upstream,out,state));}
+      if(!b.enabled){upstream.connect(out);controls.set(b.id,{update(){}});upstream=out;continue;}
+      if(b.type==='comp'){const pedal=compressorGraph(ctx,upstream,out,state);pedals.push(pedal);controls.set(b.id,pedal);}
+      else if(b.type==='delay'){const pedal=delayGraph(ctx,upstream,out,state);pedals.push(pedal);controls.set(b.id,pedal);}
       else if(['amp','drive'].includes(b.type)){
         const dry=gain(),wet=gain(),pre=gain(),level=gain();upstream.connect(dry).connect(out);let eq;
         if(b.asset?.text){engine??=await NamEngine.attach(ctx);const nam=await engine.createNode();disposables.push(nam);const info=await nam.loadModel(b.asset.text);if(info.expectedSampleRate>0&&info.expectedSampleRate!==ctx.sampleRate)throw Error(`${TYPES[b.type]} requires ${info.expectedSampleRate} Hz. Match the sample rate in Settings.`);upstream.connect(pre).connect(nam);if(b.type==='amp'){eq=ampEq(ctx,nam);nodes.push(...eq.nodes);eq.tail.connect(level);}else nam.connect(level);level.connect(wet).connect(out);}
@@ -36,7 +37,7 @@ export async function buildRigGraph(ctx,rig,source,destination){
       }upstream=out;
     }return upstream;
   }
-  async function dispose(){for(const n of nodes)n.disconnect();await Promise.allSettled(disposables.map(n=>n.dispose()));}
+  async function dispose(){for(const p of pedals)p.dispose();for(const n of nodes)n.disconnect();await Promise.allSettled(disposables.map(n=>n.dispose()));}
   try{
     const pre=await lane('pre',source);
     if(rig.mode==='parallel'){
