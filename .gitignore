@@ -5,3 +5,7 @@ ui-preview.png
 
 .tools/
 *.png
+artifacts/
+build-ios/
+package-ios/
+native-ios/*.xcodeproj/
