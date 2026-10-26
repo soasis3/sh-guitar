@@ -1,0 +1,27 @@
+name: Build iPad Audio Test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd native-ios
+          xcodegen generate
+      - name: Build unsigned device app
+        run: |
+          xcodebuild -project native-ios/SGAudioTest.xcodeproj -scheme SGAudioTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build-ios CODE_SIGNING_ALLOWED=NO build
+          mkdir -p package-ios/Payload
+          cp -R build-ios/Build/Products/Release-iphoneos/SGAudioTest.app package-ios/Payload/
+          cd package-ios
+          zip -qr ../SGAudioTest-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SGAudioTest-unsigned
+          path: SGAudioTest-unsigned.ipa
+          retention-days: 14
